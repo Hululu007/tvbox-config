@@ -5,6 +5,8 @@ import json
 import urllib3
 import os
 from tqdm import tqdm
+from Crypto.Cipher import AES
+import base64
 
 def create_directory(path):
     if not os.path.exists(path): 
@@ -15,6 +17,66 @@ class TqdmColored(tqdm):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self.bar_format = '{l_bar}%s{bar}%s{r_bar}' % ('\x1b[47m\x1b[32m', '\x1b[0m')  # \x1b[32m 为绿色
+
+def get_json(url):
+    key = url.split(";")[2] if ";" in url else ""
+    url = url.split(";")[0] if ";" in url else url
+    data = get_data(url)
+    if not data:
+        raise Exception()
+    if is_valid_json(data):
+        return data
+    if "**" in data:
+        data = base64_decode(data)
+    if data.startswith("2423"):
+        data = cbc_decrypt(data)
+    if key:
+        data = ecb_decrypt(data, key)
+    return data
+    
+def get_ext(ext):
+    try:
+        return base64_decode(get_data(ext[4:]))
+    except Exception:
+        return ""
+
+def get_data(url):
+    if url.startswith("http"):
+        urlReq = requests.get(url, verify=False)
+        return urlReq.text
+    return ""
+
+def ecb_decrypt(data, key):
+    spec = AES.new(pad_end(key).encode(), AES.MODE_ECB)
+    return spec.decrypt(bytes.fromhex(data)).decode("utf-8")
+
+def cbc_decrypt(data):
+    decode = bytes.fromhex(data).decode().lower()
+    key = pad_end(decode[decode.index("$#") + 2:decode.index("#$")])
+    iv = pad_end(decode[-13:])
+    key_spec = AES.new(key.encode(), AES.MODE_CBC, iv.encode())
+    data = data[data.index("2324") + 4:-26]
+    decrypt_data = key_spec.decrypt(bytes.fromhex(data))
+    return decrypt_data.decode("utf-8")
+
+def base64_decode(data):
+    extract = extract_base64(data)
+    return base64.b64decode(extract).decode("utf-8") if extract else data
+
+def extract_base64(data):
+    match = re.search(r"[A-Za-z0-9]{8}\*\*", data)
+    return data[data.index(match.group()) + 10:] if match else ""
+
+def pad_end(key):
+    return key + "0000000000000000"[:16 - len(key)]
+
+def is_valid_json(json_str):
+    try:
+        json.loads(json_str)
+        return True
+    except json.JSONDecodeError:
+        return False
+
 #  main
 def main():
     urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -22,19 +84,18 @@ def main():
     with open('./url.json', 'r', encoding='utf-8') as f:
         urlJson = json.load(f)
 
-    nameList = []
     reList = ["https://ghproxy.net/https://raw.githubusercontent.com", "https://raw.kkgithub.com",
             "https://gcore.jsdelivr.net/gh", "https://mirror.ghproxy.com/https://raw.githubusercontent.com",
             "https://github.moeyy.xyz/https://raw.githubusercontent.com", "https://fastly.jsdelivr.net/gh",""]
 
     with TqdmColored(total= len(urlJson), desc="Build file") as bar:
         for item in urlJson:
-            response = requests.get(item["url"], verify=False)
+            jsonStr = get_json(item["url"])
             for reI in range(len(reList)):
                 create_directory('./tv/' + str(reI))
                 urlName = item["name"]
                 urlPath = item["path"]
-                reqText = response.text
+                reqText = jsonStr
                 if urlName != "gaotianliuyun_0707":
                     reqText = reqText.replace("'./", "'" + urlPath) \
                         .replace('"./', '"' + urlPath)

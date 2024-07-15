@@ -24,6 +24,7 @@ jobs:
           pip install requests
           pip install urllib3
           pip install tqdm
+          pip install pycryptodome
       - name: 生成json文件
         run: |
           export TZ='Asia/Shanghai'
